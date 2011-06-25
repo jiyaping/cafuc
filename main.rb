@@ -3,7 +3,7 @@ require "sinatra"
 require "active_record"
 require "haml"
 
-############# conifg ###############
+############ conifg ###############
 =begin
 ActiveRecord::Base.establish_connection(
 	:adapter => "mysql",
@@ -13,7 +13,6 @@ ActiveRecord::Base.establish_connection(
 	:database => "sinatra"
 )
 =end
-
 
 ActiveRecord::Base.establish_connection(
 	:adapter=>"sqlite3",
