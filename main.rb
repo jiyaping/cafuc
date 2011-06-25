@@ -4,6 +4,7 @@ require "active_record"
 require "haml"
 
 ############# conifg ###############
+=begin
 ActiveRecord::Base.establish_connection(
 	:adapter => "mysql",
 	:host => "localhost",
@@ -11,13 +12,13 @@ ActiveRecord::Base.establish_connection(
 	:password => "root",
 	:database => "sinatra"
 )
+=end
 
-=begin
+
 ActiveRecord::Base.establish_connection(
 	:adapter=>"sqlite3",
 	:database=>"db/main.sqlite3"
 )
-=end
 
 enable :sessions
 
