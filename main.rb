@@ -16,7 +16,7 @@ ActiveRecord::Base.establish_connection(
 
 ActiveRecord::Base.establish_connection(
 	:adapter=>"sqlite3",
-	:database=>"db/main.sqlite3"
+	:database=>"main.sqlite3"
 )
 
 enable :sessions

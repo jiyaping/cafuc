@@ -1,4 +1,2 @@
-require "main"
-disable :run
-set :root,Pathname(__FILE__).dirname
+require './main'
 run Sinatra::Application
