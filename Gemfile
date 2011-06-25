@@ -2,6 +2,6 @@ source :rubygems
 source "http://rubygems.org"
 
 gem "sinatra"
-gem "active_record"
+gem "activerecord"
 gem "haml"
 
