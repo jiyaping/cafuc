@@ -1,9 +1,20 @@
 require "rubygems"
 require "sinatra"
 require "active_record"
-require "haml"
 
 ############ conifg ###############
+
+db = URI.parse(ENV['DATABASE_URL'] || 'postgres://localhost/mydb')
+
+ActiveRecord::Base.establish_connection(
+  :adapter  => db.scheme == 'postgres' ? 'postgresql' : db.scheme,
+  :host     => db.host,
+  :username => db.user,
+  :password => db.password,
+  :database => db.path[1..-1],
+  :encoding => 'utf8'
+)
+
 =begin
 ActiveRecord::Base.establish_connection(
 	:adapter => "mysql",
@@ -26,9 +37,29 @@ enable :sessions
 class Student < ActiveRecord::Base
 	has_one :profile
 end
- 
+
 class Profile < ActiveRecord::Base
 	belongs_to :student
+end
+
+class Admin < ActiveRecord::Base
+end
+
+class AddAdmin < ActiveRecord::Migration
+	def self.up
+		create_table :admins do |t|
+			t.string :adminname
+			t.string :adminpwd
+		end
+	end
+
+	def self.down
+		drop_table :admins
+	end
+end
+
+if not Admin.table_exists?
+	AddAdmin.up
 end
 
 class AddProfile < ActiveRecord::Migration
@@ -41,9 +72,9 @@ class AddProfile < ActiveRecord::Migration
 			t.string  :minzu
 			t.string  :techang
 			t.string  :identify
-			t.string  :birthday
+			t.date  :birthday
 			t.string  :address
-			t.string  :entry_time
+			t.date  :entry_time
 			t.boolean :if_locked,:default=>false
 		end
 	end
@@ -77,15 +108,38 @@ end
 
 
 ############# routes ###############
-helpers do 
+helpers do
 	def time_to_zh(date)
-		date.strftime("%Y-%m-%d")
+		if date.respond_to? "strftime"
+			date.strftime("%Y-%m-%d")
+		else
+			"xxxx-xx-xx"
+		end
+	end
+
+	def get_page_data(product,per_page,current_page)
+		max_page = (product.size/per_page.to_f).ceil
+		if(current_page<=max_page)
+			product[per_page*(current_page-1)...per_page*current_page]
+		else
+			session["error"] = "There is no page"
+			redirect back
+		end
 	end
 end
 
 get "/" do
 	erb :index,:layout=>:user_layout
 end
+
+get "/jquery.js" do
+	"js/jquery.js"
+end
+
+get "/jeditable.js" do
+	"js/jeditable.js"
+end
+
 
 get "/student/login" do
 	session[:number] = nil
@@ -102,12 +156,13 @@ get "/student/login" do
 	end
 end
 
-get "/logout" do 
+get "/logout" do
+	session[:adminname]=nil
 	session[:number] = nil
 	redirect to("/")
 end
 
-get "/validate/number" do 
+get "/validate/number" do
 	number = params[:number]
 	stu = Student.where("number=?",number)
 	if stu.length!=0
@@ -117,7 +172,7 @@ get "/validate/number" do
 	end
 end
 
-post "/student/register" do 
+post "/student/register" do
 	number = params[:number]
 	password = params[:password]
 	email = params[:email]
@@ -141,7 +196,7 @@ get "/student/profile" do
 	erb :profile,:layout=>:user_layout
 end
 
-post "/student/profile" do 
+post "/student/profile" do
 	profile = Profile.new
 	profile.student_id = session[:number]
 	profile.name = params[:name]
@@ -162,13 +217,17 @@ post "/student/profile" do
 end
 
 get "/:number" do
+	@number = params[:number]
 	@profile = Profile.where("student_id=?",params[:number])[0]
+	if @profile.nil?
+		@profile = Profile.new
+	end
 	#"#{@profile[0].name}"
 	erb :show,:layout=>:user_layout
 end
 
 
-post "/student/update/name/:stu_id" do 
+post "/student/update/name/:stu_id" do
 	@profile = Profile.where("student_id=?",params[:stu_id])[0]
 	@profile.name = params[:value]
 	if @profile.save
@@ -248,13 +307,246 @@ post "/student/update/address/:stu_id" do
 	end
 end
 
+get "/admin/login" do
+	erb :admin_login,:layout=>:user_layout
+end
 
+post "/admin/login" do
+	admin_name = params[:adminname]
+	admin_pwd = params[:adminpwd]
 
+	@admin = Admin.where("adminname=? and adminpwd=?",admin_name,admin_pwd)[0]
+	if @admin
+		session[:adminname] = @admin.adminname
+		redirect to("/admin/list")
+	else
+		redirect to("/admin/login")
+	end
+end
 
+get "/admin/list" do
+	students = Profile.find(:all)
+	#"#{@students.size}"
+	@students = get_page_data(students,10.0,1)
+	@max_page = (students.size/10.0).ceil
+	erb :list,:layout=>:user_layout
+end
 
+get "/admin/list/:number" do
+	students = Profile.find(:all)
+	@students = get_page_data(students,10.0,params[:number].to_i)
+	@max_page = (students.size/10.0).ceil
+	#"#{(students.size/10.to_f).ceil}"
+	erb :list,:layout=>:user_layout
+end
+
+get "/admin/search" do
+	stu_id = params[:student_id]
+	stu_name = params[:name]
+	@students
+	if stu_id!=""
+		if stu_name!=""
+			@students = Profile.where("student_id=? and name=?",stu_id,stu_name)
+		else
+			@students = Profile.where("student_id=?",stu_id)
+		end
+	else
+		if stu_name!=""
+			@students = Profile.where("name=?",stu_name)
+		else
+			@students = []
+		end
+	end
+	@max_page=0
+	erb :list,:layout=>:user_layout
+end
+
+get "/admin/delete" do
+	stu_id = params[:stu_id]
+	if Profile.delete(Profile.where("student_id=?",stu_id)[0].id)==1
+		status 200
+		"success"
+	else
+		status 500
+	end
+end
 
 ############# views ###############
+
+
 __END__
+@@ layout
+<<html>
+<head>
+	<title>test layout 1</title>
+</head>
+<body>
+	<h1>layout 1</h1>
+	<div><%=yield%></div>
+</body>
+</html>
+
+@@ list
+<style type="text/css">
+#result{
+	margin:0px 0px 0px 20px;
+	padding: 20px 0 300px 20px;
+}
+
+#search{
+	margin: 10px 10px 20px 50px;
+    padding: 20px;
+}
+
+#search input{
+	height: 30px;
+    width: 200px;
+}
+
+#search label{
+	font-size: 15px;
+    font-weight: bold;
+    color:lightblue;
+}
+
+#result-header{
+	font-size: 18px;
+    font-weight: bold;
+}
+
+#result-header span{
+	margin: 30px;
+    padding: 10px;
+}
+
+#list{
+	margin: 30px;
+}
+
+#list h1{
+	color: lightBlue;
+    letter-spacing: 3px;
+    margin: 20px 20px 10px 35px;
+}
+
+table{
+	width: 700px;
+}
+
+.thead{
+	color: black;
+    font-size: 15px;
+    font-weight: bold;
+}
+
+tr{
+	height: 30px;
+}
+
+td{
+	color: black;
+    font-size: 15px;
+}
+#pages{
+	font-size: 15px;
+    margin: 30px 0 10px;
+}
+</style>
+
+<script type="text/javascript">
+	$(function(){
+		$(".delete-item").click(function(){
+			var stu = $(this).attr("id");
+			$("#result-item-"+stu).ajaxStart(function(){
+				$(this).empty().append("<span>please waiting ....</span>");
+			});
+			$.ajax({
+				type:"get",
+				url:"/admin/delete",
+				data:{stu_id:stu},
+				dataType:"text",
+				success:function(data){
+					if(data=="success"){
+						$("#result-item-"+stu).remove();
+						//alert("ok");
+					}
+				}
+			});
+		});
+	});
+</script>
+
+<div id="search">
+	<form action="/admin/search" method="get">
+	<label>Student ID</label>
+	<input class="search" type="text" id="student_id" name="student_id"/>
+	<label>Student Name</label>
+	<input class="search" type="text" id="name" name="name"/>
+	<input type="submit" value="Go Search" id="SearchButton"/>
+	</form>
+</div>
+<div id="list">
+<h1>Student List</h1>
+<div id="result">
+	<table>
+	<tr>
+	<td><span class="thead">Student Id</span></td>
+	<td><span class="thead">Name</span></td>
+	<td><span class="thead">Xingbie</span></td>
+	</tr>
+	<%@students.each do |student| %>
+		<tr class="result-item" id="result-item-<%=student.student_id%>">
+			<td><%=student.student_id%></td>
+			<td><%=student.name%></td>
+			<td><%=student.xingbie%></td>
+			<%if session[:adminname]%>
+				<td><a class="show-item" href="/<%=student.student_id%>">showAndupdate</a></td>
+				<td><a class="delete-item" id="<%=student.student_id%>">delete</a>
+				</td>
+			<%end%>
+		</tr>
+	<% end %>
+	</table>
+		<%if @max_page>1%>
+			<div id="pages">
+			<span>Pages >> </span>
+			<%@max_page.times do |page_id|%>
+				<span><a href="/admin/list/<%=page_id+1%>"><%=page_id+1%></a></span>
+			<% end %>
+			</div>
+		<% end %>
+</div>
+</div>
+@@admin_login
+<style type="text/css">
+	#admin_login{
+		margin:0px 0px 0px 20px;
+		padding: 20px 0 300px 20px;
+	}
+
+	input{
+	color:black;
+	border-bottom: 1px solid #FFFFDD;
+    font-size: 20px;
+    height: 30px;
+    margin-bottom: 10px;
+    width: 300px;
+	}
+
+</style>
+
+<div id="admin_login">
+<h1>Admin</h1>
+<form action="/admin/login" method="post">
+	<label>Admin Name</label><br />
+	<input type="text" name="adminname"/><br />
+	<label>Admin Password</label><br />
+	<input type="password" name="adminpwd" /><br />
+	<input type="submit" value="login"/>
+</form>
+</div>
+
+
 
 @@ show
 <style type="text/css">
@@ -276,7 +568,7 @@ __END__
     margin: 5px;
     text-align: right;
     width: 200px;
-	
+
 	}
 
 	.attr{
@@ -291,7 +583,9 @@ __END__
     color:grey;
 	}
 </style>
-<%if @profile.student_id.to_s== session[:number]%>
+
+<%if @profile.student_id.to_s== session[:number] || session[:adminname]!=nil%>
+
 <script type="text/javascript">
 $(function(){
 	$("#name").editable(buildLink("name"),{
@@ -338,11 +632,12 @@ function buildLink(str){
 	return "/student/update/"+str+"/"+stu_id;
 }
 </script>
+
 <% end %>
 
 <div id="show_user">
 	<h1>Student Profile</h1>
-	<div class="attr"><span>Student Number</span><div id="student_id"><%= @profile.student_id%></div></div>
+	<div class="attr"><span>Student Number</span><div id="student_id"><%=session[:number]||@number%></div></div>
 	<div class="attr"><span>Student Name</span><div id="name"><%= @profile.name%></div></div>
 	<div class="attr"><span>JiGuan</span><div id="jiguan"><%= @profile.jiguan%></div></div>
 	<div class="attr"><span>XingBie</span><div id="xingbie"><%= @profile.xingbie%></div></div>
@@ -378,7 +673,7 @@ legend {
 }
 
 form{
-	margin:20px 0px 0px 40px;	
+	margin:20px 0px 0px 40px;
 }
 
 label{
@@ -420,7 +715,7 @@ textarea{
 </style>
 
 <script type="text/javascript">
-	
+
 </script>
 
 <div id="profile">
@@ -469,7 +764,7 @@ textarea{
 		margin:3px;
 	}
 	#login{
-		
+
 	}
 	.register,.login{
 		background-color: #FFFFDD;
@@ -491,7 +786,7 @@ textarea{
 	#pro_link{
 		font-size: 30px;
     	margin-left: 200px;
-    	padding-top: 200px;	
+    	padding-top: 200px;
 	}
 </style>
 
@@ -536,7 +831,7 @@ $(function(){
 			$("#login_load").hide();
 		});
 	});
-	
+
 	$("#number").focusin(function(){
 		$("#number_error").remove();
 		});
@@ -570,9 +865,9 @@ $(function(){
 		var com_pwd = $("#password_confirm").val();
 		if(pwd!=com_pwd){
 			$(this).after("<span class='error-info' id='password_error'>two password is not equal</span>");
-		}	
+		}
 	});
-	
+
 	$("#signin").click(function(){
 		var nb = $("#number").val();
 		var pwd = $("#password").val();
@@ -637,8 +932,8 @@ $(function(){
 <html>
 	<head>
 		<title>user index</title>
-		<script type="text/javascript" src="jquery.js"></script>
-		<script type="text/javascript" src="jeditable.js"></script>
+		<script type="text/javascript" src="/js/jquery.js"></script>
+		<script type="text/javascript" src="/js/jeditable.js"></script>
 		<style type="text/css">
 			*{
     			font-weight: normal;
@@ -731,13 +1026,3 @@ $(function(){
 	</body>
 </html>
 
-@@ layout
-<<html>
-<head>
-	<title>test layout 1</title>
-</head>
-<body>
-	<h1>layout 1</h1>
-	<div><%=yield%></div>
-</body>
-</html>
